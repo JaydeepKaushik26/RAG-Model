@@ -1,0 +1,80 @@
+<div class="rag-root">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <span class="brand-icon">◈</span>
+      <span class="brand-name">RAG<br><em>Model</em></span>
+    </div>
+
+    <div class="upload-section">
+      <p class="section-label">Knowledge Base</p>
+      <label class="upload-btn" [class.loading]="ingesting()">
+        <input type="file" accept=".txt,.md,.csv,.pdf" multiple (change)="onFileUpload($event)" hidden />
+        <span *ngIf="!ingesting()">＋ Upload Documents</span>
+        <span *ngIf="ingesting()">Indexing…</span>
+      </label>
+      <p class="ingest-status" *ngIf="ingestStatus()">{{ ingestStatus() }}</p>
+
+      <ul class="file-list" *ngIf="uploadedFiles().length">
+        <li *ngFor="let f of uploadedFiles()">
+          <span class="file-icon">▪</span> {{ f }}
+        </li>
+      </ul>
+
+      <p class="empty-hint" *ngIf="!uploadedFiles().length">
+        Upload .txt, .md or .pdf files to start querying
+      </p>
+    </div>
+
+    <button class="clear-btn" (click)="clearChat()" [disabled]="!messages().length">
+      Clear Chat
+    </button>
+  </aside>
+
+  <!-- Chat area -->
+  <main class="chat-area">
+    <div class="messages" #msgContainer>
+      <div class="welcome" *ngIf="!messages().length">
+        <h1>Ask your documents</h1>
+        <p>Upload files on the left, then ask anything about their content.</p>
+      </div>
+
+      <div
+        *ngFor="let msg of messages()"
+        class="message"
+        [class.user]="msg.role === 'user'"
+        [class.assistant]="msg.role === 'assistant'"
+      >
+        <div class="bubble">
+          <p>{{ msg.text }}</p>
+          <div class="sources" *ngIf="msg.sources?.length">
+            <span class="sources-label">Sources:</span>
+            <span class="source-tag" *ngFor="let s of msg.sources">
+              {{ s['filename'] || 'Unknown' }}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div class="message assistant" *ngIf="loading()">
+        <div class="bubble typing">
+          <span></span><span></span><span></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Input -->
+    <div class="input-bar">
+      <textarea
+        [(ngModel)]="question"
+        (keydown)="onKeydown($event)"
+        placeholder="Ask a question about your documents…"
+        rows="1"
+        [disabled]="loading()"
+      ></textarea>
+      <button class="send-btn" (click)="ask()" [disabled]="loading() || !question.trim()">
+        ➤
+      </button>
+    </div>
+  </main>
+</div>
