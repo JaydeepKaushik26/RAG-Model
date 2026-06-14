@@ -1,80 +1,173 @@
-<div class="rag-root">
-  <!-- Sidebar -->
-  <aside class="sidebar">
-    <div class="sidebar-brand">
-      <span class="brand-icon">◈</span>
-      <span class="brand-name">RAG<br><em>Model</em></span>
+<div class="shell">
+
+  <!-- ── Sidebar ── -->
+  <aside class="sidebar" [class.collapsed]="sidebarCollapsed()">
+    <div class="sidebar-top">
+      <div class="brand">
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+          <rect x="2" y="2" width="10" height="10" rx="2" fill="#7C6FFF"/>
+          <rect x="16" y="2" width="10" height="10" rx="2" fill="#7C6FFF" opacity=".5"/>
+          <rect x="2" y="16" width="10" height="10" rx="2" fill="#7C6FFF" opacity=".5"/>
+          <rect x="16" y="16" width="10" height="10" rx="2" fill="#7C6FFF"/>
+        </svg>
+        <span class="brand-name" *ngIf="!sidebarCollapsed()">Askio</span>
+      </div>
+      <button class="collapse-btn" (click)="toggleSidebar()" [title]="sidebarCollapsed() ? 'Expand' : 'Collapse'">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path *ngIf="!sidebarCollapsed()" d="M10 3L5 8l5 5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+          <path *ngIf="sidebarCollapsed()" d="M6 3l5 5-5 5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+        </svg>
+      </button>
     </div>
 
-    <div class="upload-section">
-      <p class="section-label">Knowledge Base</p>
-      <label class="upload-btn" [class.loading]="ingesting()">
-        <input type="file" accept=".txt,.md,.csv,.pdf" multiple (change)="onFileUpload($event)" hidden />
-        <span *ngIf="!ingesting()">＋ Upload Documents</span>
-        <span *ngIf="ingesting()">Indexing…</span>
-      </label>
-      <p class="ingest-status" *ngIf="ingestStatus()">{{ ingestStatus() }}</p>
-
-      <ul class="file-list" *ngIf="uploadedFiles().length">
-        <li *ngFor="let f of uploadedFiles()">
-          <span class="file-icon">▪</span> {{ f }}
-        </li>
-      </ul>
-
-      <p class="empty-hint" *ngIf="!uploadedFiles().length">
-        Upload .txt, .md or .pdf files to start querying
-      </p>
-    </div>
-
-    <button class="clear-btn" (click)="clearChat()" [disabled]="!messages().length">
-      Clear Chat
-    </button>
-  </aside>
-
-  <!-- Chat area -->
-  <main class="chat-area">
-    <div class="messages" #msgContainer>
-      <div class="welcome" *ngIf="!messages().length">
-        <h1>Ask your documents</h1>
-        <p>Upload files on the left, then ask anything about their content.</p>
+    <div class="sidebar-body" *ngIf="!sidebarCollapsed()">
+      <!-- Upload zone -->
+      <div class="upload-zone" [class.drag-over]="isDragging()" [class.has-files]="uploadedFiles().length > 0"
+           (dragover)="onDragOver($event)" (dragleave)="isDragging.set(false)" (drop)="onDrop($event)">
+        <label class="upload-label" [class.uploading]="ingesting()">
+          <input type="file" accept=".txt,.md,.csv,.pdf" multiple (change)="onFileUpload($event)" hidden [disabled]="ingesting()" />
+          <div class="upload-icon">
+            <svg *ngIf="!ingesting()" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+            </svg>
+            <div *ngIf="ingesting()" class="spinner"></div>
+          </div>
+          <span class="upload-text" *ngIf="!ingesting()">
+            {{ uploadedFiles().length ? 'Add more files' : 'Drop files here' }}
+          </span>
+          <span class="upload-text" *ngIf="ingesting()">Indexing…</span>
+          <span class="upload-sub" *ngIf="!ingesting()">PDF, TXT, MD, CSV</span>
+        </label>
       </div>
 
-      <div
-        *ngFor="let msg of messages()"
-        class="message"
-        [class.user]="msg.role === 'user'"
-        [class.assistant]="msg.role === 'assistant'"
-      >
-        <div class="bubble">
-          <p>{{ msg.text }}</p>
+      <p class="ingest-status" *ngIf="ingestStatus()">{{ ingestStatus() }}</p>
+
+      <!-- File list -->
+      <div class="file-section" *ngIf="uploadedFiles().length">
+        <p class="section-label">Indexed files</p>
+        <ul class="file-list">
+          <li *ngFor="let f of uploadedFiles()" class="file-item">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2">
+              <path d="M8 1H3a1 1 0 00-1 1v10a1 1 0 001 1h8a1 1 0 001-1V6L8 1z"/>
+              <path d="M8 1v5h5"/>
+            </svg>
+            <span class="file-name">{{ f }}</span>
+          </li>
+        </ul>
+      </div>
+
+      <!-- Suggested questions -->
+      <div class="suggestions" *ngIf="uploadedFiles().length && !messages().length">
+        <p class="section-label">Try asking</p>
+        <button class="suggestion-chip" *ngFor="let q of suggestions" (click)="askSuggestion(q)">
+          {{ q }}
+        </button>
+      </div>
+    </div>
+
+    <div class="sidebar-footer" *ngIf="!sidebarCollapsed()">
+      <button class="footer-btn" (click)="clearChat()" [disabled]="!messages().length">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3">
+          <path d="M1 3h12M5 3V2h4v1M11 3l-.8 9H3.8L3 3"/>
+        </svg>
+        Clear chat
+      </button>
+    </div>
+  </aside>
+
+  <!-- ── Main chat ── -->
+  <main class="main">
+
+    <!-- Header -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <span class="status-dot" [class.active]="uploadedFiles().length > 0"></span>
+        <span class="status-text">
+          {{ uploadedFiles().length ? uploadedFiles().length + ' file' + (uploadedFiles().length > 1 ? 's' : '') + ' indexed' : 'No files indexed' }}
+        </span>
+      </div>
+      <div class="topbar-right">
+        <span class="model-badge">llama-3.3-70b · Groq</span>
+      </div>
+    </header>
+
+    <!-- Messages -->
+    <div class="messages" #scrollContainer>
+
+      <!-- Empty state -->
+      <div class="empty-state" *ngIf="!messages().length">
+        <div class="empty-icon">
+          <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+            <circle cx="24" cy="24" r="23" stroke="#7C6FFF" stroke-width="1" stroke-dasharray="4 3" opacity=".4"/>
+            <path d="M16 24h16M24 16v16" stroke="#7C6FFF" stroke-width="1.5" stroke-linecap="round" opacity=".6"/>
+          </svg>
+        </div>
+        <h2>Ask anything about your documents</h2>
+        <p *ngIf="!uploadedFiles().length">Upload a file from the sidebar to get started</p>
+        <p *ngIf="uploadedFiles().length">Your files are indexed and ready to query</p>
+      </div>
+
+      <!-- Messages -->
+      <div *ngFor="let msg of messages(); let i = index" class="msg-row" [class.user-row]="msg.role === 'user'" [class.ai-row]="msg.role === 'assistant'">
+
+        <div class="avatar" *ngIf="msg.role === 'assistant'">
+          <svg width="16" height="16" viewBox="0 0 28 28" fill="none">
+            <rect x="2" y="2" width="10" height="10" rx="2" fill="#7C6FFF"/>
+            <rect x="16" y="16" width="10" height="10" rx="2" fill="#7C6FFF"/>
+          </svg>
+        </div>
+
+        <div class="bubble" [class.user-bubble]="msg.role === 'user'" [class.ai-bubble]="msg.role === 'assistant'">
+          <p class="bubble-text">{{ msg.text }}</p>
           <div class="sources" *ngIf="msg.sources?.length">
-            <span class="sources-label">Sources:</span>
-            <span class="source-tag" *ngFor="let s of msg.sources">
-              {{ s['filename'] || 'Unknown' }}
+            <span class="source-label">From</span>
+            <span class="source-pill" *ngFor="let s of msg.sources">
+              <svg width="10" height="10" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2">
+                <path d="M8 1H3a1 1 0 00-1 1v10a1 1 0 001 1h8a1 1 0 001-1V6L8 1z"/>
+              </svg>
+              {{ s['filename'] || 'Document' }}
             </span>
           </div>
         </div>
       </div>
 
-      <div class="message assistant" *ngIf="loading()">
-        <div class="bubble typing">
+      <!-- Typing indicator -->
+      <div class="msg-row ai-row" *ngIf="loading()">
+        <div class="avatar">
+          <svg width="16" height="16" viewBox="0 0 28 28" fill="none">
+            <rect x="2" y="2" width="10" height="10" rx="2" fill="#7C6FFF"/>
+            <rect x="16" y="16" width="10" height="10" rx="2" fill="#7C6FFF"/>
+          </svg>
+        </div>
+        <div class="bubble ai-bubble typing-bubble">
           <span></span><span></span><span></span>
         </div>
       </div>
+
     </div>
 
     <!-- Input -->
-    <div class="input-bar">
-      <textarea
-        [(ngModel)]="question"
-        (keydown)="onKeydown($event)"
-        placeholder="Ask a question about your documents…"
-        rows="1"
-        [disabled]="loading()"
-      ></textarea>
-      <button class="send-btn" (click)="ask()" [disabled]="loading() || !question.trim()">
-        ➤
-      </button>
+    <div class="input-area">
+      <div class="input-box" [class.focused]="inputFocused()">
+        <textarea
+          #inputRef
+          [(ngModel)]="question"
+          (keydown)="onKeydown($event)"
+          (focus)="inputFocused.set(true)"
+          (blur)="inputFocused.set(false)"
+          (input)="autoResize($event)"
+          placeholder="Ask a question about your documents…"
+          rows="1"
+          [disabled]="loading()"
+        ></textarea>
+        <button class="send-btn" (click)="ask()" [disabled]="loading() || !question.trim()">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <path d="M16 9H2M10 3l6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+      <p class="input-hint">Press Enter to send · Shift+Enter for new line</p>
     </div>
+
   </main>
 </div>
