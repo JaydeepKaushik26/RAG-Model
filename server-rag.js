@@ -2,9 +2,10 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
-import OpenAI from 'openai';
 import fs from 'fs';
 import path from 'path';
+import Groq from 'groq-sdk';
+import OpenAI from 'openai';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 const app = express();
@@ -13,15 +14,25 @@ const upload = multer({ dest: 'uploads_tmp/' });
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-if (!process.env.OPENAI_API_KEY) {
-  console.error('❌  OPENAI_API_KEY not found. Create a .env file with OPENAI_API_KEY=sk-...');
+if (!process.env.GROQ_API_KEY) {
+  console.error('❌  GROQ_API_KEY not found. Add GROQ_API_KEY=gsk_... to your .env file');
   process.exit(1);
 }
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// ── In-memory vector store ────────────────────────────────────────────────────
-let chunks = [];
+// For embeddings we use OpenAI's free-tier compatible endpoint via a small local model
+// OR we use a simple TF-IDF style approach to avoid needing OpenAI at all
+// Here we use Groq for chat + a free embedding via OpenAI's text-embedding-3-small
+// If you have no OpenAI key, we fall back to keyword search
+
+const useEmbeddings = !!process.env.OPENAI_API_KEY;
+const openai = useEmbeddings ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
+
+console.log(`🔍 Search mode: ${useEmbeddings ? 'Vector (OpenAI embeddings)' : 'Keyword (no OpenAI key)'}`);
+
+// ── In-memory store ───────────────────────────────────────────────────────────
+let chunks = []; // { text, metadata, embedding? }
 
 function splitText(text, chunkSize = 500, overlap = 50) {
   const result = [];
@@ -43,6 +54,18 @@ function cosineSimilarity(a, b) {
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
+// Keyword search fallback (no embeddings needed)
+function keywordSearch(query, topK) {
+  const words = query.toLowerCase().split(/\s+/);
+  return chunks
+    .map(c => ({
+      ...c,
+      score: words.filter(w => c.text.toLowerCase().includes(w)).length,
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, topK);
+}
+
 async function embed(text) {
   const res = await openai.embeddings.create({
     model: 'text-embedding-3-small',
@@ -54,7 +77,7 @@ async function embed(text) {
 // ── Extract text from PDF ─────────────────────────────────────────────────────
 async function extractPdfText(filePath) {
   const data = new Uint8Array(fs.readFileSync(filePath));
-  const pdf = await getDocument({ data }).promise;
+  const pdf = await getDocument({ data, verbosity: 0 }).promise;
   let text = '';
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
@@ -64,12 +87,12 @@ async function extractPdfText(filePath) {
   return text;
 }
 
-// ── POST /api/ingest (multipart) ──────────────────────────────────────────────
+// ── POST /api/ingest ──────────────────────────────────────────────────────────
 app.post('/api/ingest', upload.array('files'), async (req, res) => {
   try {
     if (!req.files?.length) return res.status(400).json({ error: 'No files uploaded' });
 
-    chunks = []; // reset
+    chunks = [];
 
     for (const file of req.files) {
       const ext = path.extname(file.originalname).toLowerCase();
@@ -81,13 +104,12 @@ app.post('/api/ingest', upload.array('files'), async (req, res) => {
         text = fs.readFileSync(file.path, 'utf-8');
       }
 
-      // Clean up temp file
       fs.unlinkSync(file.path);
 
       const parts = splitText(text);
       for (const part of parts) {
-        if (part.trim().length < 20) continue; // skip tiny chunks
-        const embedding = await embed(part);
+        if (part.trim().length < 20) continue;
+        const embedding = useEmbeddings ? await embed(part) : null;
         chunks.push({ text: part, metadata: { filename: file.originalname }, embedding });
       }
     }
@@ -105,18 +127,25 @@ app.post('/api/query', async (req, res) => {
   try {
     const { question, topK = 4 } = req.body;
     if (!question) return res.status(400).json({ error: 'No question provided' });
-    if (!chunks.length) return res.status(400).json({ error: 'No documents ingested yet. Upload files first.' });
+    if (!chunks.length) return res.status(400).json({ error: 'No documents ingested yet.' });
 
-    const queryEmbedding = await embed(question);
-    const scored = chunks
-      .map(c => ({ ...c, score: cosineSimilarity(queryEmbedding, c.embedding) }))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, topK);
+    // Retrieve relevant chunks
+    let scored;
+    if (useEmbeddings) {
+      const queryEmbedding = await embed(question);
+      scored = chunks
+        .map(c => ({ ...c, score: cosineSimilarity(queryEmbedding, c.embedding) }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, topK);
+    } else {
+      scored = keywordSearch(question, topK);
+    }
 
     const context = scored.map(c => c.text).join('\n\n---\n\n');
 
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
+    // Generate answer with Groq (free!)
+    const completion = await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
       messages: [
         {
           role: 'system',
