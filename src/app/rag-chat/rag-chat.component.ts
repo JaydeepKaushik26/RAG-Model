@@ -26,6 +26,7 @@ export class RagChatComponent implements AfterViewChecked {
   ingestStatus = signal('');
   uploadedFiles = signal<string[]>([]);
   sidebarCollapsed = signal(false);
+  mobileMenuOpen = signal(false);
   isDragging = signal(false);
   inputFocused = signal(false);
 
@@ -48,14 +49,20 @@ export class RagChatComponent implements AfterViewChecked {
     } catch {}
   }
 
-  toggleSidebar() {
-    this.sidebarCollapsed.update(v => !v);
+  closeSidebar() {
+    this.sidebarCollapsed.set(true);
+    this.mobileMenuOpen.set(false);
+  }
+
+  openSidebar() {
+    this.sidebarCollapsed.set(false);
+    this.mobileMenuOpen.set(true);
   }
 
   ask() {
     const q = this.question.trim();
     if (!q || this.loading()) return;
-
+    this.mobileMenuOpen.set(false);
     this.messages.update(m => [...m, { role: 'user', text: q }]);
     this.question = '';
     this.loading.set(true);
@@ -74,6 +81,7 @@ export class RagChatComponent implements AfterViewChecked {
 
   askSuggestion(q: string) {
     this.question = q;
+    this.mobileMenuOpen.set(false);
     this.ask();
   }
 
@@ -110,7 +118,6 @@ export class RagChatComponent implements AfterViewChecked {
   processFiles(files: FileList) {
     this.ingesting.set(true);
     this.ingestStatus.set('Uploading & indexing…');
-
     const formData = new FormData();
     Array.from(files).forEach(file => formData.append('files', file));
 
